@@ -11,7 +11,9 @@
 import streamlit as st
 import os
 import time
+import json
 from typing import List, Dict, Any
+from pathlib import Path
 
 # 頁面配置
 st.set_page_config(
@@ -48,6 +50,82 @@ STORES = {
         'count': 1642,
     },
 }
+
+# 載入 Mapping 檔案
+def load_mappings():
+    """
+    載入 gemini_id_mapping 和 file_mapping 檔案
+    用於將 Gemini 回傳的 file ID 轉換為可讀的顯示名稱
+    """
+    base_path = Path(__file__).parent.parent / "data" / "penalties"
+
+    gemini_id_mapping = {}
+    file_mapping = {}
+
+    try:
+        # 載入 gemini_id_mapping.json
+        gemini_mapping_path = base_path / "gemini_id_mapping.json"
+        if gemini_mapping_path.exists():
+            with open(gemini_mapping_path, 'r', encoding='utf-8') as f:
+                raw_mapping = json.load(f)
+                # 建立短 ID 映射 (去掉 files/ 前綴)
+                for full_id, doc_id in raw_mapping.items():
+                    short_id = full_id.replace('files/', '')
+                    gemini_id_mapping[short_id] = doc_id
+
+        # 載入 file_mapping.json
+        file_mapping_path = base_path / "file_mapping.json"
+        if file_mapping_path.exists():
+            with open(file_mapping_path, 'r', encoding='utf-8') as f:
+                file_mapping = json.load(f)
+
+    except Exception as e:
+        st.warning(f"載入 mapping 檔案時發生錯誤: {e}")
+
+    return gemini_id_mapping, file_mapping
+
+# 全域 Mapping (載入一次)
+GEMINI_ID_MAPPING, FILE_MAPPING = load_mappings()
+
+
+def resolve_source_display_name(raw_id: str) -> tuple:
+    """
+    將 Gemini 回傳的 file ID 解析為可讀的顯示名稱
+
+    回傳: (display_name, source_type, date)
+    """
+    # 嘗試從 mapping 查詢
+    doc_id = GEMINI_ID_MAPPING.get(raw_id, '')
+
+    if doc_id and doc_id in FILE_MAPPING:
+        info = FILE_MAPPING[doc_id]
+        display_name = info.get('display_name', '')
+        date = info.get('date', '未知日期')
+
+        # 判斷來源類型
+        if doc_id.startswith('fsc_pen'):
+            source_type = "裁罰案件"
+        elif doc_id.startswith('fsc_law'):
+            source_type = "法令函釋"
+        elif doc_id.startswith('fsc_ann'):
+            source_type = "重要公告"
+        else:
+            source_type = "未知"
+
+        # 格式化顯示名稱
+        if display_name:
+            # display_name 格式: "2025-09-25_保險局_全球人壽"
+            parts = display_name.split('_')
+            if len(parts) >= 3:
+                return f"{source_type}_{parts[0]}_{parts[2]}", source_type, date
+            elif len(parts) >= 2:
+                return f"{source_type}_{parts[0]}_{parts[1]}", source_type, date
+
+        return f"{source_type}_{date}", source_type, date
+
+    # 如果 mapping 找不到，嘗試從原始名稱解析
+    return format_source_display_name(raw_id), "未知", "未知日期"
+
 
 # 範例問題
 EXAMPLE_QUESTIONS = [
@@ -222,15 +300,15 @@ def extract_sources(response) -> List[Dict[str, Any]]:
                         if hasattr(chunk, 'retrieved_context'):
                             context = chunk.retrieved_context
 
-                            # 提取原始檔名
-                            raw_filename = ""
+                            # 提取原始檔名/ID
+                            raw_id = ""
                             if hasattr(context, 'title') and context.title:
-                                raw_filename = context.title
+                                raw_id = context.title
                             elif hasattr(context, 'uri') and context.uri:
-                                raw_filename = context.uri.split('/')[-1]
+                                raw_id = context.uri.split('/')[-1]
 
-                            # 格式化顯示名稱
-                            display_name = format_source_display_name(raw_filename)
+                            # 使用 mapping 解析顯示名稱
+                            display_name, source_type, date = resolve_source_display_name(raw_id)
 
                             snippet = ""
                             if hasattr(context, 'text') and context.text:
@@ -242,7 +320,9 @@ def extract_sources(response) -> List[Dict[str, Any]]:
 
                             sources.append({
                                 'filename': display_name,
-                                'raw_filename': raw_filename,
+                                'raw_id': raw_id,
+                                'source_type': source_type,
+                                'date': date,
                                 'snippet': snippet,
                                 'score': score,
                             })
@@ -389,8 +469,17 @@ def main():
                     st.subheader(f"📚 參考來源 ({len(result['sources'])} 筆)")
 
                     for i, source in enumerate(result['sources'], 1):
+                        # 根據來源類型選擇圖示
+                        icon = "📄"
+                        if source.get('source_type') == "裁罰案件":
+                            icon = "⚖️"
+                        elif source.get('source_type') == "法令函釋":
+                            icon = "📜"
+                        elif source.get('source_type') == "重要公告":
+                            icon = "📢"
+
                         with st.expander(
-                            f"來源 {i}: {source['filename'][:60]}...",
+                            f"{icon} {source['filename']}",
                             expanded=False
                         ):
                             st.markdown(f"**相關內容：**")
@@ -409,7 +498,15 @@ def main():
                         st.markdown(result2['answer'])
 
                         for i, source in enumerate(result2['sources'], 1):
-                            with st.expander(f"來源 {i}: {source['filename'][:60]}..."):
+                            icon = "📄"
+                            if source.get('source_type') == "裁罰案件":
+                                icon = "⚖️"
+                            elif source.get('source_type') == "法令函釋":
+                                icon = "📜"
+                            elif source.get('source_type') == "重要公告":
+                                icon = "📢"
+
+                            with st.expander(f"{icon} {source['filename']}"):
                                 st.markdown(f"> {source['snippet'][:300]}...")
                     else:
                         st.info("你查詢的問題在目前的文件庫中沒有合適的結果，請嘗試換個方式描述您的問題。")
