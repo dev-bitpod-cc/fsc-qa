@@ -169,6 +169,41 @@ def query_gemini(question: str, selected_stores: List[str], api_key: str) -> Dic
         }
 
 
+def format_source_display_name(raw_name: str) -> str:
+    """
+    將原始檔案名稱格式化為易讀的顯示名稱
+
+    原始格式範例：
+    - 法令函釋: 2006-03-03_securities_bureau_law_amendment_fsc_law_201406240001
+    - 重要公告: 2019-01-02_insurance_bureau_ann_amendment_fsc_unk_20190102_1648
+    - 裁罰案件: 2025-09-25_insurance_bureau_penalty_fsc_pen_20250925_0001
+
+    輸出格式：
+    - 法令函釋_2006-03-03
+    - 重要公告_2019-01-02
+    - 裁罰案件_2025-09-25
+    """
+    if not raw_name:
+        return "未知文件"
+
+    # 判斷來源類型
+    source_type = "未知"
+    if 'fsc_law' in raw_name or 'law_' in raw_name:
+        source_type = "法令函釋"
+    elif 'fsc_unk' in raw_name or 'ann_' in raw_name:
+        source_type = "重要公告"
+    elif 'fsc_pen' in raw_name or 'penalty' in raw_name:
+        source_type = "裁罰案件"
+
+    # 提取日期（格式：YYYY-MM-DD）
+    date = "未知日期"
+    parts = raw_name.split('_')
+    if parts and len(parts[0]) == 10 and '-' in parts[0]:
+        date = parts[0]
+
+    return f"{source_type}_{date}"
+
+
 def extract_sources(response) -> List[Dict[str, Any]]:
     """
     從 Gemini 回應中提取來源
@@ -187,12 +222,15 @@ def extract_sources(response) -> List[Dict[str, Any]]:
                         if hasattr(chunk, 'retrieved_context'):
                             context = chunk.retrieved_context
 
-                            # 提取資訊
-                            filename = "未知文件"
+                            # 提取原始檔名
+                            raw_filename = ""
                             if hasattr(context, 'title') and context.title:
-                                filename = context.title
+                                raw_filename = context.title
                             elif hasattr(context, 'uri') and context.uri:
-                                filename = context.uri.split('/')[-1]
+                                raw_filename = context.uri.split('/')[-1]
+
+                            # 格式化顯示名稱
+                            display_name = format_source_display_name(raw_filename)
 
                             snippet = ""
                             if hasattr(context, 'text') and context.text:
@@ -203,7 +241,8 @@ def extract_sources(response) -> List[Dict[str, Any]]:
                                 score = float(chunk.score)
 
                             sources.append({
-                                'filename': filename,
+                                'filename': display_name,
+                                'raw_filename': raw_filename,
                                 'snippet': snippet,
                                 'score': score,
                             })
