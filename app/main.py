@@ -54,30 +54,70 @@ STORES = {
 # 載入 Mapping 檔案
 def load_mappings():
     """
-    載入 gemini_id_mapping 和 file_mapping 檔案
+    載入所有資料類型的 gemini_id_mapping 和 file_mapping 檔案
     用於將 Gemini 回傳的 file ID 轉換為可讀的顯示名稱
     """
-    base_path = Path(__file__).parent.parent / "data" / "penalties"
+    data_path = Path(__file__).parent.parent / "data"
 
-    gemini_id_mapping = {}
-    file_mapping = {}
+    gemini_id_mapping = {}  # gemini_short_id → doc_id
+    file_mapping = {}       # doc_id → info
 
     try:
-        # 載入 gemini_id_mapping.json
-        gemini_mapping_path = base_path / "gemini_id_mapping.json"
+        # === 載入裁罰案件 (舊格式) ===
+        penalties_path = data_path / "penalties"
+
+        # gemini_id_mapping.json: {files/xxx: doc_id}
+        gemini_mapping_path = penalties_path / "gemini_id_mapping.json"
         if gemini_mapping_path.exists():
             with open(gemini_mapping_path, 'r', encoding='utf-8') as f:
                 raw_mapping = json.load(f)
-                # 建立短 ID 映射 (去掉 files/ 前綴)
                 for full_id, doc_id in raw_mapping.items():
                     short_id = full_id.replace('files/', '')
                     gemini_id_mapping[short_id] = doc_id
 
-        # 載入 file_mapping.json
-        file_mapping_path = base_path / "file_mapping.json"
+        # file_mapping.json: {doc_id: info}
+        file_mapping_path = penalties_path / "file_mapping.json"
         if file_mapping_path.exists():
             with open(file_mapping_path, 'r', encoding='utf-8') as f:
-                file_mapping = json.load(f)
+                file_mapping.update(json.load(f))
+
+        # === 載入法令函釋 (新格式) ===
+        law_path = data_path / "law_interpretations"
+        law_mapping_path = law_path / "gemini_id_mapping_new.json"
+        if law_mapping_path.exists():
+            with open(law_mapping_path, 'r', encoding='utf-8') as f:
+                raw_mapping = json.load(f)
+                # 新格式: {doc_id: {gemini_file_id, display_name, date, source, category}}
+                for doc_id, info in raw_mapping.items():
+                    gemini_file_id = info.get('gemini_file_id', '')
+                    if gemini_file_id:
+                        short_id = gemini_file_id.replace('files/', '')
+                        gemini_id_mapping[short_id] = doc_id
+                    # 加入 file_mapping
+                    file_mapping[doc_id] = {
+                        'display_name': info.get('display_name', ''),
+                        'date': info.get('date', ''),
+                        'source': info.get('source', ''),
+                        'category': info.get('category', ''),
+                    }
+
+        # === 載入重要公告 (新格式) ===
+        ann_path = data_path / "announcements"
+        ann_mapping_path = ann_path / "gemini_id_mapping_new.json"
+        if ann_mapping_path.exists():
+            with open(ann_mapping_path, 'r', encoding='utf-8') as f:
+                raw_mapping = json.load(f)
+                for doc_id, info in raw_mapping.items():
+                    gemini_file_id = info.get('gemini_file_id', '')
+                    if gemini_file_id:
+                        short_id = gemini_file_id.replace('files/', '')
+                        gemini_id_mapping[short_id] = doc_id
+                    file_mapping[doc_id] = {
+                        'display_name': info.get('display_name', ''),
+                        'date': info.get('date', ''),
+                        'source': info.get('source', ''),
+                        'category': info.get('category', ''),
+                    }
 
     except Exception as e:
         st.warning(f"載入 mapping 檔案時發生錯誤: {e}")
@@ -101,30 +141,47 @@ def resolve_source_display_name(raw_id: str) -> tuple:
         info = FILE_MAPPING[doc_id]
         display_name = info.get('display_name', '')
         date = info.get('date', '未知日期')
+        source = info.get('source', '')
 
         # 判斷來源類型
         if doc_id.startswith('fsc_pen'):
             source_type = "裁罰案件"
+            icon = "⚖️"
         elif doc_id.startswith('fsc_law'):
             source_type = "法令函釋"
-        elif doc_id.startswith('fsc_ann'):
+            icon = "📜"
+        elif doc_id.startswith('fsc_unk') or doc_id.startswith('fsc_ann'):
             source_type = "重要公告"
+            icon = "📢"
         else:
             source_type = "未知"
+            icon = "📄"
+
+        # 來源單位中文化
+        source_map = {
+            'insurance_bureau': '保險局',
+            'securities_bureau': '證期局',
+            'bank_bureau': '銀行局',
+            'fsc': '金管會',
+        }
+        source_display = source_map.get(source, source)
 
         # 格式化顯示名稱
         if display_name:
-            # display_name 格式: "2025-09-25_保險局_全球人壽"
+            # 裁罰案件格式: "2025-09-25_保險局_全球人壽"
+            # 新格式: "2025-11-14_insurance_bureau_ann_amendment_fsc_unk_..."
             parts = display_name.split('_')
-            if len(parts) >= 3:
-                return f"{source_type}_{parts[0]}_{parts[2]}", source_type, date
+            if doc_id.startswith('fsc_pen') and len(parts) >= 3:
+                # 裁罰: 日期_來源_機構名稱
+                return f"{icon} {parts[0]}_{parts[2]}", source_type, date
             elif len(parts) >= 2:
-                return f"{source_type}_{parts[0]}_{parts[1]}", source_type, date
+                # 法令函釋/公告: 日期_來源
+                return f"{icon} {date}_{source_display}", source_type, date
 
-        return f"{source_type}_{date}", source_type, date
+        return f"{icon} {source_type}_{date}", source_type, date
 
     # 如果 mapping 找不到，嘗試從原始名稱解析
-    return format_source_display_name(raw_id), "未知", "未知日期"
+    return f"📄 {format_source_display_name(raw_id)}", "未知", "未知日期"
 
 
 # 範例問題
