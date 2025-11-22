@@ -83,8 +83,6 @@ def load_mappings():
 
         # === 載入法令函釋 ===
         law_path = data_path / "law_interpretations"
-
-        # 先載入 gemini_id_mapping_new.json (建立反向映射)
         law_gemini_path = law_path / "gemini_id_mapping_new.json"
         if law_gemini_path.exists():
             with open(law_gemini_path, 'r', encoding='utf-8') as f:
@@ -99,34 +97,11 @@ def load_mappings():
                         'date': info.get('date', ''),
                         'source': info.get('source', ''),
                         'category': info.get('category', ''),
+                        'original_url': info.get('original_url', ''),
                     }
-
-        # 再載入 law_interpretations_mapping.json (補充 original_url)
-        law_detail_path = law_path / "law_interpretations_mapping.json"
-        if law_detail_path.exists():
-            with open(law_detail_path, 'r', encoding='utf-8') as f:
-                detail_mapping = json.load(f)
-                for doc_id, info in detail_mapping.items():
-                    if doc_id in file_mapping:
-                        file_mapping[doc_id]['original_url'] = info.get('original_url', '')
-                    else:
-                        # gemini_id_mapping_new 沒有的，也加入
-                        gemini_file_id = info.get('gemini_file_id', '')
-                        if gemini_file_id:
-                            short_id = gemini_file_id.replace('files/', '')
-                            gemini_id_mapping[short_id] = doc_id
-                        file_mapping[doc_id] = {
-                            'display_name': info.get('display_name', ''),
-                            'date': info.get('date', ''),
-                            'source': info.get('source', ''),
-                            'category': info.get('category', ''),
-                            'original_url': info.get('original_url', ''),
-                        }
 
         # === 載入重要公告 ===
         ann_path = data_path / "announcements"
-
-        # 先載入 gemini_id_mapping_new.json
         ann_gemini_path = ann_path / "gemini_id_mapping_new.json"
         if ann_gemini_path.exists():
             with open(ann_gemini_path, 'r', encoding='utf-8') as f:
@@ -141,28 +116,8 @@ def load_mappings():
                         'date': info.get('date', ''),
                         'source': info.get('source', ''),
                         'category': info.get('category', ''),
+                        'original_url': info.get('original_url', ''),
                     }
-
-        # 再載入 announcements_mapping.json (補充 original_url)
-        ann_detail_path = ann_path / "announcements_mapping.json"
-        if ann_detail_path.exists():
-            with open(ann_detail_path, 'r', encoding='utf-8') as f:
-                detail_mapping = json.load(f)
-                for doc_id, info in detail_mapping.items():
-                    if doc_id in file_mapping:
-                        file_mapping[doc_id]['original_url'] = info.get('original_url', '')
-                    else:
-                        gemini_file_id = info.get('gemini_file_id', '')
-                        if gemini_file_id:
-                            short_id = gemini_file_id.replace('files/', '')
-                            gemini_id_mapping[short_id] = doc_id
-                        file_mapping[doc_id] = {
-                            'display_name': info.get('display_name', ''),
-                            'date': info.get('date', ''),
-                            'source': info.get('source', ''),
-                            'category': info.get('category', ''),
-                            'original_url': info.get('original_url', ''),
-                        }
 
     except Exception as e:
         st.warning(f"載入 mapping 檔案時發生錯誤: {e}")
