@@ -81,19 +81,19 @@ def load_mappings():
             with open(file_mapping_path, 'r', encoding='utf-8') as f:
                 file_mapping.update(json.load(f))
 
-        # === 載入法令函釋 (新格式) ===
+        # === 載入法令函釋 ===
         law_path = data_path / "law_interpretations"
-        law_mapping_path = law_path / "gemini_id_mapping_new.json"
-        if law_mapping_path.exists():
-            with open(law_mapping_path, 'r', encoding='utf-8') as f:
+
+        # 先載入 gemini_id_mapping_new.json (建立反向映射)
+        law_gemini_path = law_path / "gemini_id_mapping_new.json"
+        if law_gemini_path.exists():
+            with open(law_gemini_path, 'r', encoding='utf-8') as f:
                 raw_mapping = json.load(f)
-                # 新格式: {doc_id: {gemini_file_id, display_name, date, source, category}}
                 for doc_id, info in raw_mapping.items():
                     gemini_file_id = info.get('gemini_file_id', '')
                     if gemini_file_id:
                         short_id = gemini_file_id.replace('files/', '')
                         gemini_id_mapping[short_id] = doc_id
-                    # 加入 file_mapping
                     file_mapping[doc_id] = {
                         'display_name': info.get('display_name', ''),
                         'date': info.get('date', ''),
@@ -101,11 +101,35 @@ def load_mappings():
                         'category': info.get('category', ''),
                     }
 
-        # === 載入重要公告 (新格式) ===
+        # 再載入 law_interpretations_mapping.json (補充 original_url)
+        law_detail_path = law_path / "law_interpretations_mapping.json"
+        if law_detail_path.exists():
+            with open(law_detail_path, 'r', encoding='utf-8') as f:
+                detail_mapping = json.load(f)
+                for doc_id, info in detail_mapping.items():
+                    if doc_id in file_mapping:
+                        file_mapping[doc_id]['original_url'] = info.get('original_url', '')
+                    else:
+                        # gemini_id_mapping_new 沒有的，也加入
+                        gemini_file_id = info.get('gemini_file_id', '')
+                        if gemini_file_id:
+                            short_id = gemini_file_id.replace('files/', '')
+                            gemini_id_mapping[short_id] = doc_id
+                        file_mapping[doc_id] = {
+                            'display_name': info.get('display_name', ''),
+                            'date': info.get('date', ''),
+                            'source': info.get('source', ''),
+                            'category': info.get('category', ''),
+                            'original_url': info.get('original_url', ''),
+                        }
+
+        # === 載入重要公告 ===
         ann_path = data_path / "announcements"
-        ann_mapping_path = ann_path / "gemini_id_mapping_new.json"
-        if ann_mapping_path.exists():
-            with open(ann_mapping_path, 'r', encoding='utf-8') as f:
+
+        # 先載入 gemini_id_mapping_new.json
+        ann_gemini_path = ann_path / "gemini_id_mapping_new.json"
+        if ann_gemini_path.exists():
+            with open(ann_gemini_path, 'r', encoding='utf-8') as f:
                 raw_mapping = json.load(f)
                 for doc_id, info in raw_mapping.items():
                     gemini_file_id = info.get('gemini_file_id', '')
@@ -118,6 +142,27 @@ def load_mappings():
                         'source': info.get('source', ''),
                         'category': info.get('category', ''),
                     }
+
+        # 再載入 announcements_mapping.json (補充 original_url)
+        ann_detail_path = ann_path / "announcements_mapping.json"
+        if ann_detail_path.exists():
+            with open(ann_detail_path, 'r', encoding='utf-8') as f:
+                detail_mapping = json.load(f)
+                for doc_id, info in detail_mapping.items():
+                    if doc_id in file_mapping:
+                        file_mapping[doc_id]['original_url'] = info.get('original_url', '')
+                    else:
+                        gemini_file_id = info.get('gemini_file_id', '')
+                        if gemini_file_id:
+                            short_id = gemini_file_id.replace('files/', '')
+                            gemini_id_mapping[short_id] = doc_id
+                        file_mapping[doc_id] = {
+                            'display_name': info.get('display_name', ''),
+                            'date': info.get('date', ''),
+                            'source': info.get('source', ''),
+                            'category': info.get('category', ''),
+                            'original_url': info.get('original_url', ''),
+                        }
 
     except Exception as e:
         st.warning(f"載入 mapping 檔案時發生錯誤: {e}")
@@ -132,7 +177,7 @@ def resolve_source_display_name(raw_id: str) -> tuple:
     """
     將 Gemini 回傳的 file ID 解析為可讀的顯示名稱
 
-    回傳: (display_name, source_type, date)
+    回傳: (display_name, source_type, date, original_url)
     """
     # 嘗試從 mapping 查詢
     doc_id = GEMINI_ID_MAPPING.get(raw_id, '')
@@ -142,6 +187,7 @@ def resolve_source_display_name(raw_id: str) -> tuple:
         display_name = info.get('display_name', '')
         date = info.get('date', '未知日期')
         source = info.get('source', '')
+        original_url = info.get('original_url', '')
 
         # 判斷來源類型
         if doc_id.startswith('fsc_pen'):
@@ -173,15 +219,15 @@ def resolve_source_display_name(raw_id: str) -> tuple:
             parts = display_name.split('_')
             if doc_id.startswith('fsc_pen') and len(parts) >= 3:
                 # 裁罰: 日期_來源_機構名稱
-                return f"{icon} {parts[0]}_{parts[2]}", source_type, date
+                return f"{icon} {parts[0]}_{parts[2]}", source_type, date, original_url
             elif len(parts) >= 2:
                 # 法令函釋/公告: 日期_來源
-                return f"{icon} {date}_{source_display}", source_type, date
+                return f"{icon} {date}_{source_display}", source_type, date, original_url
 
-        return f"{icon} {source_type}_{date}", source_type, date
+        return f"{icon} {source_type}_{date}", source_type, date, original_url
 
     # 如果 mapping 找不到，嘗試從原始名稱解析
-    return f"📄 {format_source_display_name(raw_id)}", "未知", "未知日期"
+    return f"📄 {format_source_display_name(raw_id)}", "未知", "未知日期", ""
 
 
 # 範例問題
@@ -365,7 +411,7 @@ def extract_sources(response) -> List[Dict[str, Any]]:
                                 raw_id = context.uri.split('/')[-1]
 
                             # 使用 mapping 解析顯示名稱
-                            display_name, source_type, date = resolve_source_display_name(raw_id)
+                            display_name, source_type, date, original_url = resolve_source_display_name(raw_id)
 
                             snippet = ""
                             if hasattr(context, 'text') and context.text:
@@ -382,6 +428,7 @@ def extract_sources(response) -> List[Dict[str, Any]]:
                                 'date': date,
                                 'snippet': snippet,
                                 'score': score,
+                                'original_url': original_url,
                             })
 
     except Exception as e:
@@ -503,15 +550,9 @@ def main():
                 # 顯示結果
                 st.success("✅ 查詢完成")
 
-                # 指標欄
-                col1, col2, col3 = st.columns(3)
-                with col1:
-                    st.metric("⏱️ 回應時間", f"{result['latency']:.2f} 秒")
-                with col2:
-                    st.metric("📚 來源數量", len(result['sources']))
-                with col3:
-                    stores_text = ", ".join([STORES[s]['display_name'] for s in selected_stores])
-                    st.metric("📂 查詢範圍", stores_text[:20])
+                # 指標欄（使用較小字體）
+                stores_text = ", ".join([STORES[s]['display_name'] for s in selected_stores])
+                st.caption(f"⏱️ 回應時間: {result['latency']:.2f} 秒　｜　📚 來源數量: {len(result['sources'])} 筆　｜　📂 查詢範圍: {stores_text}")
 
                 st.markdown("---")
 
@@ -544,6 +585,10 @@ def main():
 
                             if source['score'] < 1.0:
                                 st.caption(f"相似度: {source['score']:.2%}")
+
+                            # 顯示原始網頁連結
+                            if source.get('original_url'):
+                                st.markdown(f"[🔗 查看原始網頁]({source['original_url']})")
                 else:
                     # sources=0 自動重試
                     st.warning("⚠️ 未找到參考來源，正在重試...")
@@ -565,6 +610,9 @@ def main():
 
                             with st.expander(f"{icon} {source['filename']}"):
                                 st.markdown(f"> {source['snippet'][:300]}...")
+                                # 顯示原始網頁連結
+                                if source.get('original_url'):
+                                    st.markdown(f"[🔗 查看原始網頁]({source['original_url']})")
                     else:
                         st.info("你查詢的問題在目前的文件庫中沒有合適的結果，請嘗試換個方式描述您的問題。")
 
