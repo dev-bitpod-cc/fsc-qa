@@ -517,33 +517,47 @@ def main():
 
                 st.markdown("---")
 
-                # 來源
+                # 來源（按類型分組，各組按時間排序）
                 if result['sources']:
                     st.subheader(f"📚 參考來源 ({len(result['sources'])} 筆)")
 
-                    for i, source in enumerate(result['sources'], 1):
-                        # 根據來源類型選擇圖示
-                        icon = "📄"
-                        if source.get('source_type') == "裁罰案件":
-                            icon = "⚖️"
-                        elif source.get('source_type') == "法令函釋":
-                            icon = "📜"
-                        elif source.get('source_type') == "重要公告":
-                            icon = "📢"
+                    # 按類型分組
+                    penalties = [s for s in result['sources'] if s.get('source_type') == "裁罰案件"]
+                    law_interps = [s for s in result['sources'] if s.get('source_type') == "法令函釋"]
+                    announcements = [s for s in result['sources'] if s.get('source_type') == "重要公告"]
+                    others = [s for s in result['sources'] if s.get('source_type') not in ["裁罰案件", "法令函釋", "重要公告"]]
 
-                        with st.expander(
-                            f"{icon} {source['filename']}",
-                            expanded=False
-                        ):
-                            st.markdown(f"**相關內容：**")
-                            st.markdown(f"> {source['snippet'][:300]}...")
+                    # 各組按日期排序（最新到最舊）
+                    for group in [penalties, law_interps, announcements, others]:
+                        group.sort(key=lambda x: x.get('date', ''), reverse=True)
 
-                            if source['score'] < 1.0:
-                                st.caption(f"相似度: {source['score']:.2%}")
+                    # 依序顯示：裁罰 → 函釋 → 公告 → 其他
+                    type_config = [
+                        ("⚖️", "裁罰案件", penalties),
+                        ("📜", "法令函釋", law_interps),
+                        ("📢", "重要公告", announcements),
+                        ("📄", "其他", others),
+                    ]
 
-                            # 顯示原始網頁連結
-                            if source.get('original_url'):
-                                st.markdown(f"[🔗 查看原始網頁]({source['original_url']})")
+                    for icon, type_name, sources_list in type_config:
+                        if not sources_list:
+                            continue
+
+                        st.caption(f"{icon} {type_name} ({len(sources_list)} 筆)")
+                        for source in sources_list:
+                            with st.expander(
+                                f"{icon} {source['filename']}",
+                                expanded=False
+                            ):
+                                st.markdown(f"**相關內容：**")
+                                st.markdown(f"> {source['snippet'][:300]}...")
+
+                                if source['score'] < 1.0:
+                                    st.caption(f"相似度: {source['score']:.2%}")
+
+                                # 顯示原始網頁連結
+                                if source.get('original_url'):
+                                    st.markdown(f"[🔗 查看原始網頁]({source['original_url']})")
                 else:
                     # sources=0 自動重試
                     st.warning("⚠️ 未找到參考來源，正在重試...")
@@ -554,20 +568,21 @@ def main():
                         st.success("✅ 重試成功")
                         st.markdown(result2['answer'])
 
-                        for i, source in enumerate(result2['sources'], 1):
-                            icon = "📄"
-                            if source.get('source_type') == "裁罰案件":
-                                icon = "⚖️"
-                            elif source.get('source_type') == "法令函釋":
-                                icon = "📜"
-                            elif source.get('source_type') == "重要公告":
-                                icon = "📢"
+                        # 按類型分組並排序
+                        penalties2 = sorted([s for s in result2['sources'] if s.get('source_type') == "裁罰案件"], key=lambda x: x.get('date', ''), reverse=True)
+                        law_interps2 = sorted([s for s in result2['sources'] if s.get('source_type') == "法令函釋"], key=lambda x: x.get('date', ''), reverse=True)
+                        announcements2 = sorted([s for s in result2['sources'] if s.get('source_type') == "重要公告"], key=lambda x: x.get('date', ''), reverse=True)
+                        others2 = sorted([s for s in result2['sources'] if s.get('source_type') not in ["裁罰案件", "法令函釋", "重要公告"]], key=lambda x: x.get('date', ''), reverse=True)
 
-                            with st.expander(f"{icon} {source['filename']}"):
-                                st.markdown(f"> {source['snippet'][:300]}...")
-                                # 顯示原始網頁連結
-                                if source.get('original_url'):
-                                    st.markdown(f"[🔗 查看原始網頁]({source['original_url']})")
+                        for icon, type_name, sources_list in [("⚖️", "裁罰案件", penalties2), ("📜", "法令函釋", law_interps2), ("📢", "重要公告", announcements2), ("📄", "其他", others2)]:
+                            if not sources_list:
+                                continue
+                            st.caption(f"{icon} {type_name} ({len(sources_list)} 筆)")
+                            for source in sources_list:
+                                with st.expander(f"{icon} {source['filename']}"):
+                                    st.markdown(f"> {source['snippet'][:300]}...")
+                                    if source.get('original_url'):
+                                        st.markdown(f"[🔗 查看原始網頁]({source['original_url']})")
                     else:
                         st.info("你查詢的問題在目前的文件庫中沒有合適的結果，請嘗試換個方式描述您的問題。")
 
